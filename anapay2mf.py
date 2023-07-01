@@ -5,9 +5,10 @@ ANA Payの情報をメールから取得してスプレッドシートに書き�
 """
 
 import base64
-from dataclasses import dataclass
+from dataclasses import astuple, dataclass
 from datetime import datetime
 
+import gspread
 from dateutil import parser
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -17,33 +18,41 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
 ]
 
-# ご利用日時：2023-06-28 22:46:19
-# ご利用金額：44,308円
-# ご利用店舗：SMOKEBEERFACTORY OTSUKATE
-
+# Google Spreadsheet ID and Sheet name
+SHEET_ID = "143Ewai1jFlt4d4msZI8fXersf2IErrzTQfFjjrwzOwM"
+SHEET_NAME = "ANAPay"
 
 
 @dataclass
 class ANAPay:
+    """ANA Pay information"""
+
     email_date: datetime = None
-    subject: str = ""
     date_of_use: datetime = None
     amount: int = 0
     store: str = ""
 
+    def values(self) -> tuple[str, str, str, str]:
+        """return tuple of values for spreadsheet"""
+        return self.email_date_str, self.date_of_use_str, self.amount, self.store
 
-def get_mail_info(service, mid):
-    res = service.users().messages().get(userId="me", id=mid).execute()
+    @property
+    def email_date_str(self) -> str:
+        return f"{self.email_date:%Y-%m-%d %H:%M:%S}"
+
+    @property
+    def date_of_use_str(self) -> str:
+        return f"{self.date_of_use:%Y-%m-%d %H:%M:%S}"
+
+
+def get_mail_info(res: dict) -> ANAPay | None:
+    """
+    1件のメールからANA Payの利用情報を取得して返す
+    """
     ana_pay = ANAPay()
     for header in res["payload"]["headers"]:
         if header["name"] == "Date":
             ana_pay.email_date = parser.parse(header["value"])
-        elif header["name"] == "Subject":
-            ana_pay.subject = header["value"]
-
-    # ご利用のお知らせ以外は無視
-    if "ご利用のお知らせ" not in ana_pay.subject:
-        return
 
     # 本文から日時、金額、店舗を取り出す
     # ご利用日時：2023-06-28 22:46:19
@@ -63,19 +72,58 @@ def get_mail_info(service, mid):
     return ana_pay
 
 
-def get_anapay_mail(creds):
+def get_anapay_info(after: str) -> list[ANAPay]:
+    """
+    gmailからANA Payの利用履歴を取得する
+    """
+    ana_pay_list = []
+
+    creds = Credentials.from_authorized_user_file("token.json", SCOPES)
     service = build("gmail", "v1", credentials=creds)
-    query = "from:payinfo@121.ana.co.jp"
+
+    # https://developers.google.com/gmail/api/reference/rest/v1/users.messages/list
+    query = f"from:payinfo@121.ana.co.jp subject:ご利用のお知らせ after:{after}"
     results = service.users().messages().list(userId="me", q=query).execute()
     messages = results.get("messages", [])
-    for message in messages[:5]:
-        ana_pay = get_mail_info(service, message["id"])
-        print(ana_pay)
+    for message in reversed(messages):
+        # https://developers.google.com/gmail/api/reference/rest/v1/users.messages/get
+        res = service.users().messages().get(userId="me", id=message["id"]).execute()
+        ana_pay = get_mail_info(res)
+        if ana_pay:
+            ana_pay_list.append(ana_pay)
+    return ana_pay_list
+
+    after = "2023/06/28"
+
+
+def get_last_email_date(records: list[dict[str, str]]):
+    """get last email date for gmail search"""
+    after = "2023/06/28"
+    if records:
+        last_email_date = parser.parse(records[-1]["email_date"])
+        after = f"{last_email_date:%Y/%m/%d}"
+    return after
 
 
 def main():
-    creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-    get_anapay_mail(creds)
+    gc = gspread.oauth(
+        credentials_filename="credentials.json", authorized_user_filename="token.json"
+    )
+    sheet = gc.open_by_key(SHEET_ID)
+    worksheet = sheet.worksheet("ANAPay")
+    records = worksheet.get_all_records()
+    # get last email date
+    after = get_last_email_date(records)
+
+    # ANA Payの利用履歴をGmailから取得
+    ana_pay_list = get_anapay_info(after)
+    # print(len(ana_pay_list))
+    # print(ana_pay_list)
+
+    # store ana pay info to spreadsheet
+    for ana_pay in ana_pay_list:
+        # TODO: 同じ日時のレコードがあったらとばす
+        worksheet.append_row(ana_pay.values(), value_input_option="USER_ENTERED")
 
 
 if __name__ == "__main__":

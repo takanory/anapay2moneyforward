@@ -110,13 +110,8 @@ def get_last_email_date(records: list[dict[str, str]]):
     return after
 
 
-def main():
-    gc = gspread.oauth(
-        credentials_filename="credentials.json", authorized_user_filename="token.json"
-    )
-    sheet = gc.open_by_key(SHEET_ID)
-    worksheet = sheet.worksheet("ANAPay")
-
+def gmail2spredsheet(worksheet):
+    """gmailからANA Payの利用履歴を取得しスプレッドシートに書き込む"""
     # get all records from spreadsheet
     records = worksheet.get_all_records()
     logging.info("Number of records in spreadsheet: %d", len(records))
@@ -139,6 +134,23 @@ def main():
             count += 1
             logging.info("Record added to spreadsheet: %s", ana_pay.values())
     logging.info("Number of records added: %d", count)
+
+
+def spreadsheet2mf(worksheet):
+    """スプレッドシートからmoneyfowardに書き込む"""
+    # records = worksheet.get_all_records()
+    pass
+
+
+def main():
+    gc = gspread.oauth(
+        credentials_filename="credentials.json", authorized_user_filename="token.json"
+    )
+    sheet = gc.open_by_key(SHEET_ID)
+    worksheet = sheet.worksheet("ANAPay")
+
+    gmail2spredsheet(worksheet)
+    spreadsheet2mf(worksheet)
 
 
 if __name__ == "__main__":

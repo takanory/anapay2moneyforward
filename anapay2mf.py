@@ -5,7 +5,8 @@ ANA Payの情報をメールから取得してスプレッドシートに書き�
 """
 
 import base64
-from dataclasses import astuple, dataclass
+import logging
+from dataclasses import dataclass
 from datetime import datetime
 
 import gspread
@@ -21,6 +22,9 @@ SCOPES = [
 # Google Spreadsheet ID and Sheet name
 SHEET_ID = "143Ewai1jFlt4d4msZI8fXersf2IErrzTQfFjjrwzOwM"
 SHEET_NAME = "ANAPay"
+
+format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+logging.basicConfig(format=format, level=logging.INFO)
 
 
 @dataclass
@@ -52,7 +56,8 @@ def get_mail_info(res: dict) -> ANAPay | None:
     ana_pay = ANAPay()
     for header in res["payload"]["headers"]:
         if header["name"] == "Date":
-            ana_pay.email_date = parser.parse(header["value"])
+            date_str = header["value"].replace(" +0900 (JST)", "")
+            ana_pay.email_date = parser.parse(date_str)
 
     # 本文から日時、金額、店舗を取り出す
     # ご利用日時：2023-06-28 22:46:19
@@ -111,19 +116,29 @@ def main():
     )
     sheet = gc.open_by_key(SHEET_ID)
     worksheet = sheet.worksheet("ANAPay")
+
+    # get all records from spreadsheet
     records = worksheet.get_all_records()
-    # get last email date
+    logging.info("Number of records in spreadsheet: %d", len(records))
+
+    # get last day from records
     after = get_last_email_date(records)
+    logging.info("Last day on spreadsheet: %s", after)
+    email_date_set = set(parser.parse(r["email_date"]) for r in records)
 
-    # ANA Payの利用履歴をGmailから取得
+    # get ANA Pay email from Gamil
     ana_pay_list = get_anapay_info(after)
-    # print(len(ana_pay_list))
-    # print(ana_pay_list)
+    logging.info("Number of ANA Pay emails: %d", len(ana_pay_list))
 
-    # store ana pay info to spreadsheet
+    # add ANA Pay record to spreadsheet
+    count = 0
     for ana_pay in ana_pay_list:
-        # TODO: 同じ日時のレコードがあったらとばす
-        worksheet.append_row(ana_pay.values(), value_input_option="USER_ENTERED")
+        # メールの日付が存在しない場合はレコードを追加
+        if ana_pay.email_date not in email_date_set:
+            worksheet.append_row(ana_pay.values(), value_input_option="USER_ENTERED")
+            count += 1
+            logging.info("Record added to spreadsheet: %s", ana_pay.values())
+    logging.info("Number of records added: %d", count)
 
 
 if __name__ == "__main__":

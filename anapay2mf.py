@@ -6,11 +6,14 @@ ANA Payの情報をメールから取得してスプレッドシートに書き�
 
 import base64
 import logging
+import os
 from dataclasses import dataclass
 from datetime import datetime
 
 import gspread
+import helium
 from dateutil import parser
+from dotenv import load_dotenv
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
@@ -23,8 +26,12 @@ SCOPES = [
 SHEET_ID = "143Ewai1jFlt4d4msZI8fXersf2IErrzTQfFjjrwzOwM"
 SHEET_NAME = "ANAPay"
 
+MF_URL = "https://ssnb.x.moneyforward.com/cf"
+
 format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 logging.basicConfig(format=format, level=logging.INFO)
+
+load_dotenv()
 
 
 @dataclass
@@ -136,10 +143,70 @@ def gmail2spredsheet(worksheet):
     logging.info("Number of records added: %d", count)
 
 
-def spreadsheet2mf(worksheet):
+def login_mf():
+    """login moneyforward sbi"""
+
+    email = os.getenv("EMAIL")
+    password = os.getenv("PASSWORD")
+
+    # https://selenium-python-helium.readthedocs.io/en/latest/api.html
+    helium.start_firefox(MF_URL)
+    helium.write(email, into="メールアドレス")
+    helium.write(password, into="パスワード")
+    helium.click("ログイン")
+    helium.wait_until(helium.Button("手入力").exists)
+
+
+def add_mf_record(dt: datetime, amount: int, store: str, store_info: dict | None):
+    """
+    add record to moneyfoward
+    """
+    
+    # https://selenium-python-helium.readthedocs.io/en/latest/api.html
+    helium.click("手入力")
+    # breakpoint()
+    helium.write(f"{dt:%Y/%m/%d}", into="日付")
+    helium.click("日付")
+
+    helium.write(amount, into="支出金額")
+    asset = helium.find_all(helium.ComboBox())[0]
+    helium.select(asset, asset.options[2])
+
+    if store_info:
+        category = helium.find_all(helium.Link("未分類"))[0]
+        l_category = helium.find_all(helium.S("#js-large-category-selected"))[0]
+        helium.click(l_category)
+        helium.click(store_info["大項目"])
+
+        m_category = helium.find_all(helium.S("#js-middle-category-selected"))[0]
+        helium.click(m_category)
+        helium.click(store_info["中項目"])
+
+        helium.write(store_info["店名"], into="内容をご入力下さい(任意)")
+    else:
+        helium.write(store, into="内容をご入力下さい(任意)")
+
+    helium.click("保存する")
+
+    helium.wait_until(helium.Button("続けて入力する").exists)
+    helium.click("続けて入力する")
+
+
+def spreadsheet2mf(worksheet, store_dict: dict[str, dict[str, str]]) -> None:
     """スプレッドシートからmoneyfowardに書き込む"""
-    # records = worksheet.get_all_records()
-    pass
+    login_mf()  # login
+
+    records = worksheet.get_all_records()
+    for count, record in enumerate(records):
+        if record["mf"] != "done":
+            date_of_use = parser.parse(record["date_of_use"])
+            amount = int(record["amount"])
+            store = record["store"]
+            add_mf_record(date_of_use, amount, store, store_dict.get(store))
+
+            # update spread sheets for "done" message
+            worksheet.update_cell(count + 2, 5, "done")
+    helium.kill_browser()
 
 
 def main():
@@ -147,10 +214,12 @@ def main():
         credentials_filename="credentials.json", authorized_user_filename="token.json"
     )
     sheet = gc.open_by_key(SHEET_ID)
-    worksheet = sheet.worksheet("ANAPay")
+    anapay_sheet = sheet.worksheet("ANAPay")
+    store_sheet = sheet.worksheet("ANAPayStore")
+    store_dict = {store["store"]: store for store in store_sheet.get_all_records()}
 
-    gmail2spredsheet(worksheet)
-    spreadsheet2mf(worksheet)
+    gmail2spredsheet(anapay_sheet)
+    spreadsheet2mf(anapay_sheet, store_dict)
 
 
 if __name__ == "__main__":

@@ -162,7 +162,7 @@ def add_mf_record(dt: datetime, amount: int, store: str, store_info: dict | None
     """
     add record to moneyfoward
     """
-    
+
     # https://selenium-python-helium.readthedocs.io/en/latest/api.html
     helium.click("手入力")
     # breakpoint()

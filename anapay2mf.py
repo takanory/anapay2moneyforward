@@ -121,7 +121,7 @@ def gmail2spredsheet(worksheet):
     """gmailからANA Payの利用履歴を取得しスプレッドシートに書き込む"""
     # get all records from spreadsheet
     records = worksheet.get_all_records()
-    logging.info("Number of records in spreadsheet: %d", len(records))
+    logging.info("Records in spreadsheet: %d", len(records))
 
     # get last day from records
     after = get_last_email_date(records)
@@ -130,7 +130,7 @@ def gmail2spredsheet(worksheet):
 
     # get ANA Pay email from Gamil
     ana_pay_list = get_anapay_info(after)
-    logging.info("Number of ANA Pay emails: %d", len(ana_pay_list))
+    logging.info("ANA Pay emails: %d", len(ana_pay_list))
 
     # add ANA Pay record to spreadsheet
     count = 0
@@ -140,7 +140,7 @@ def gmail2spredsheet(worksheet):
             worksheet.append_row(ana_pay.values(), value_input_option="USER_ENTERED")
             count += 1
             logging.info("Record added to spreadsheet: %s", ana_pay.values())
-    logging.info("Number of records added: %d", count)
+    logging.info("Records added to spreadsheet: %d", count)
 
 
 def login_mf():
@@ -150,6 +150,7 @@ def login_mf():
     password = os.getenv("PASSWORD")
 
     # https://selenium-python-helium.readthedocs.io/en/latest/api.html
+    logging.info("Login to moneyfoward")
     helium.start_firefox(MF_URL)
     helium.write(email, into="メールアドレス")
     helium.write(password, into="パスワード")
@@ -187,6 +188,7 @@ def add_mf_record(dt: datetime, amount: int, store: str, store_info: dict | None
         helium.write(store, into="内容をご入力下さい(任意)")
 
     helium.click("保存する")
+    logging.info(f"Record added to moneyforward: {dt:%Y/%m/%d}, {amount}, {store}")
 
     helium.wait_until(helium.Button("続けて入力する").exists)
     helium.click("続けて入力する")
@@ -194,9 +196,15 @@ def add_mf_record(dt: datetime, amount: int, store: str, store_info: dict | None
 
 def spreadsheet2mf(worksheet, store_dict: dict[str, dict[str, str]]) -> None:
     """スプレッドシートからmoneyfowardに書き込む"""
-    login_mf()  # login
 
     records = worksheet.get_all_records()
+
+    # すべてmoneyforwardに登録済みならなにもしない
+    if all(record["mf"] == "done" for record in records):
+        return
+
+    login_mf()  # login to moneyfoward
+    added = 0
     for count, record in enumerate(records):
         if record["mf"] != "done":
             date_of_use = parser.parse(record["date_of_use"])
@@ -206,7 +214,10 @@ def spreadsheet2mf(worksheet, store_dict: dict[str, dict[str, str]]) -> None:
 
             # update spread sheets for "done" message
             worksheet.update_cell(count + 2, 5, "done")
+            added += 1
     helium.kill_browser()
+
+    logging.info(f"Records added to moneyforward: {added}")
 
 
 def main():

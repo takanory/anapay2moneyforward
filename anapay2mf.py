@@ -152,9 +152,11 @@ def login_mf():
     # https://selenium-python-helium.readthedocs.io/en/latest/api.html
     logging.info("Login to moneyfoward")
     helium.start_firefox(MF_URL)
+    helium.wait_until(helium.Button("ログイン").exists)
     helium.write(email, into="メールアドレス")
     helium.write(password, into="パスワード")
     helium.click("ログイン")
+
     helium.wait_until(helium.Button("手入力").exists)
 
 

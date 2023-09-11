@@ -9,13 +9,17 @@ import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 import gspread
 import helium
 from dateutil import parser
 from dotenv import load_dotenv
+from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+
+import quickstart
 
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
@@ -223,6 +227,15 @@ def spreadsheet2mf(worksheet, store_dict: dict[str, dict[str, str]]) -> None:
 
 
 def main():
+    try:
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+        service = build('gmail', 'v1', credentials=creds)
+        results = service.users().labels().list(userId='me').execute()
+    except RefreshError:
+        # recreate token
+        Path("token.json").unlink(missing_ok=True)
+        quickstart.main()
+
     gc = gspread.oauth(
         credentials_filename="credentials.json", authorized_user_filename="token.json"
     )

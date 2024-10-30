@@ -177,7 +177,9 @@ def add_mf_record(dt: datetime, amount: int, store: str, store_info: dict | None
 
     helium.write(amount, into="支出金額")
     asset = helium.find_all(helium.ComboBox())[0]
-    helium.select(asset, asset.options[2])
+    for option in asset.options:
+        if option.startswith("ANA Pay"):
+            helium.select(asset, option)
 
     if store_info:
         category = helium.find_all(helium.Link("未分類"))[0]
